@@ -4,16 +4,22 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-winit = { version = "0.30" }
-instant = "0.1"
-pollster = "0.4"
-wgpu = { version = "27" }
-glam = { version = "0.32", features = ["bytemuck"] }
-bytemuck = "1"
+gameboy-core = { path = "gameboy-core" }
 
-tracing = "0.1"
-tracing-subscriber = "0.3"
+pixels = { path = "pixels" }
 
 egui = "0.33"
 egui-winit = "0.33"
 egui-wgpu = "0.33"
+
+instant = "0.1"
+
+tracing = { workspace = true }
+tracing-subscriber = "0.3"
+
+[workspace]
+members = ["gameboy-core", "pixels", "."]
+default-members = ["gameboy-core", "pixels", "."]
+
+[workspace.dependencies]
+tracing = "0.1"

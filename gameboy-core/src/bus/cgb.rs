@@ -1,4 +1,4 @@
-use crate::gb::util::MemoryError;
+use crate::util::MemoryError;
 
 #[derive(Default)]
 pub struct Cgb {

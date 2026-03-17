@@ -1,4 +1,4 @@
-use std::ops::{Add, Deref, DerefMut, Sub};
+use std::ops::{Add, Sub};
 
 pub type Width = u16;
 
@@ -56,6 +56,11 @@ impl std::fmt::Display for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:#04X}", self)
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Controls {
+    A = 0, B = 1, Start = 2, Select = 3, Up = 4, Down = 5, Left = 6, Right = 7
 }
 
 pub trait BusComponent {

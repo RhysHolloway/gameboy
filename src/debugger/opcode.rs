@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use crate::gb::bus::Bus;
-use crate::gb::util::{Address, Width};
-use crate::gb::cpu::Opcode;
+use gameboy_core::bus::Bus;
+use gameboy_core::util::{Address, Width};
+use gameboy_core::cpu::Opcode;
 
 macro_rules! op {
     ($n:expr) => {

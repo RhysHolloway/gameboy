@@ -1,4 +1,6 @@
-use crate::gb::util::{Address, MemoryError};
+use std::borrow::Cow;
+
+use crate::util::{Address, MemoryError};
 
 use super::Bank;
 
@@ -91,11 +93,15 @@ impl Cartridge {
         }
     }
 
-    pub fn rom(&self) -> &Vec<u8> {
+    pub const fn rom(&self) -> &Vec<u8> {
         &self.rom
     }
 
-    pub fn title(&self) -> &str {
-        self.rom.get(0x134..0x144).and_then(|bytes| std::str::from_utf8(bytes).ok()).unwrap_or("UNKNOWN")
+    pub const fn rom_bank(&self) -> u8 {
+        self.rom_bank
+    }
+
+    pub fn title(&self) -> Cow<'_, str> {
+        self.rom.get(0x134..0x144).map(String::from_utf8_lossy).unwrap_or(Cow::Borrowed("UNKNOWN"))
     }
 }

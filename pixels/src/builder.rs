@@ -1,6 +1,5 @@
 use super::renderers::{ScalingMatrix, ScalingRenderer};
 use super::{Error, Pixels, PixelsContext, SurfaceSize, SurfaceTexture, TextureError};
-use wgpu::rwh::{HasDisplayHandle, HasWindowHandle};
 
 /// A builder to help create customized pixel buffers.
 pub struct PixelsBuilder<'req, 'dev, 'win> {

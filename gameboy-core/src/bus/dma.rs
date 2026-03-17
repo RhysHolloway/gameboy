@@ -1,6 +1,6 @@
-use crate::gb::bus::Bus;
-use crate::gb::Cycles;
-use crate::gb::util::{Address, BusComponent, MemoryError};
+use crate::bus::Bus;
+use crate::Cycles;
+use crate::util::{Address, BusComponent, MemoryError};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Dma {

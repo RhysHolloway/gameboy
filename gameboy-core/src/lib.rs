@@ -1,16 +1,14 @@
-mod bus;
-mod cpu;
-mod debugger;
-mod util;
+pub mod bus;
+pub mod cpu;
+pub mod util;
 
-pub use debugger::Debugger;
+use crate::util::Controls;
 
 use self::cpu::CycleError;
 
 pub struct GameboyColor {
     pub cpu: cpu::CPU,
-    bus: bus::Bus,
-    cycles: Cycles,
+    pub bus: bus::Bus,
 }
 
 /**
@@ -54,6 +52,12 @@ impl<'a> std::ops::Div<u8> for &'a Cycles {
     }
 }
 
+impl std::ops::AddAssign for Cycles {
+    fn add_assign(&mut self, rhs: Self) {
+        self.0 += rhs.0;
+    }
+}
+
 pub struct GameboyCycle {
     pub cpu: cpu::CycleExecution,
     pub render: bool,
@@ -66,23 +70,17 @@ impl GameboyColor {
         Self {
             cpu: cpu::CPU::new(),
             bus: bus::Bus::new(rom),
-            cycles: Cycles(0),
         }
     }
 
     pub fn cycle(&mut self) -> Result<GameboyCycle, CycleError> {
         let cpu = self.cpu.cycle(&mut self.bus)?;
-        self.cycles.0 += cpu.cycles.0; 
         self.bus.cycle(&cpu.cycles).map(|render| GameboyCycle { cpu, render }).map_err(|e| CycleError::Bus(self.cpu.pc(), e))
     }
 
     pub fn reset(&mut self) {
         self.cpu.reset();
         self.bus.reset();
-    }
-
-    pub fn cycles(&self) -> usize {
-        self.cycles.0
     }
         
     pub fn frame_to_rgba(&self, output: &mut [u8]) {
@@ -102,9 +100,13 @@ impl GameboyColor {
         
     }
 
+    pub fn update_input(&mut self, input: (Controls, bool)) {
+        self.bus.update_input((input.0, !input.1));
+    }
+
     pub fn handle_interrupts(&mut self) {}
 
-    pub fn title(&self) -> &str {
+    pub fn title(&self) -> std::borrow::Cow<'_, str> {
         self.bus.cartridge.title()
     }
 }

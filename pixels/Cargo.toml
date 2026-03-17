@@ -1,0 +1,11 @@
+[package]
+name = "pixels"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+wgpu = { version = "27" }
+winit = { version = "0.30" }
+glam = { version = "0.32", features = ["bytemuck"] }
+bytemuck = "1"
+pollster = "0.4"

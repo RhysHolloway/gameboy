@@ -9,8 +9,7 @@ mod dma;
 mod cgb;
 
 pub use interrupts::*;
-
-use crate::gb::util::{Address, BusComponent, MappedComponent, MemoryError, OffsetMemory};
+use crate::util::{Address, BusComponent, Controls, MappedComponent, MemoryError, OffsetMemory};
 
 use self::{cartridge::Cartridge};
 
@@ -34,14 +33,12 @@ impl Bus {
 
     pub fn new(rom: Vec<u8>) -> Self {
         Self {
-            // bios: Bios::from(bios),
             cartridge: Cartridge::new(rom),
-            wram: wram::Wram::default(),
             hram: OffsetMemory::new("High RAM"),
-            // io: io::Io::default(),
+            wram: wram::Wram::default(),
             interrupts: Default::default(),
-            ppu: ppu::Ppu::new(),
-            timer: timer::Timer::new(),
+            ppu: ppu::Ppu::default(),
+            timer: timer::Timer::default(),
             serial: serial::SerialState::default(),
             joypad: joypad::Joypad::default(),
             dma: dma::Dma::default(),
@@ -58,9 +55,10 @@ impl Bus {
             // 0xFF40..=0xFF4B => self.ppu.read_reg(address),
             0xFF00 => self.joypad.read(),
             0xFF01 => self.serial.read(address)?,
-            0xFF04..=0xFF07 => self.timer.read(address)?,
-            // 0xFF10..=0xFF26 => self.audio.read(address)?,
+            0xFF04..=0xFF07 => self.timer.read(address),
             0xFF0F => self.interrupts.i,
+            0xFF10..=0xFF26 => 0xFF, // self.audio.read(address)?,
+            0xFF38..=0xFF3F => 0xFF, // self.audio.read(address)?,
             0xFF40..0xFF46 | 0xFF47..=0xFF4B => self.ppu.read_reg(address)?,
             0xFF46 => self.dma.read(),
             0xFF4D => self.cgb.read_mapped(address)?,
@@ -70,7 +68,7 @@ impl Bus {
         })
     }
         
-    pub fn read_dma(&mut self, address: Address) -> Option<u8> {
+    pub fn read_dma(&self, address: Address) -> Option<u8> {
         match address.0 {
             0xE000..=0xFDFF => self.wram.read_offset(address - 0xE000).ok(),
             0xFE00..=0xFE9F => self.ppu.voam.read_mapped(address).ok(),
@@ -90,8 +88,9 @@ impl Bus {
             0xFE00..=0xFE9F => self.ppu.voam.write_mapped(address, value)?,
             0xFF00 => self.joypad.write(value),
             0xFF01 | 0xFF02 => self.serial.write(address, value)?,
-            0xFF04..=0xFF07 => self.timer.write(address, value)?,
+            0xFF04..=0xFF07 => self.timer.write(address, value),
             0xFF10..=0xFF26 => (), // self.audio.write(address, value)?,
+            0xFF30..=0xFF3F => (), // self.audio.write(address, value)?,
             0xFF0F => self.interrupts.i = value & 0x1F,
             0xFF40..0xFF46 | 0xFF47..=0xFF4B => self.ppu.write_reg(address, value)?,
             0xFF46 => self.dma.write(value), // OAM DMA
@@ -129,8 +128,8 @@ impl Bus {
         *self = Self::new(rom);
     }
 
-    pub fn rom_bank(&self) -> u8 {
-        self.cartridge.rom_bank
+    pub fn update_input(&mut self, input: (Controls, bool)) {
+        self.joypad.update(&mut self.interrupts.i, input);
     }
 
 }

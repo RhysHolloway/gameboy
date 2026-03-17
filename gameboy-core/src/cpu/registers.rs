@@ -1,9 +1,9 @@
 use std::ops::{Index, IndexMut};
 
-use crate::gb::bus::{Bus, BusError};
-use crate::gb::util::Address;
+use crate::bus::{Bus, BusError};
+use crate::util::Address;
 
-#[derive(Default)]
+#[repr(C)]
 pub struct Registers {
     bc: u16,
     de: u16,
@@ -12,6 +12,13 @@ pub struct Registers {
     sp: u16,
     pc: u16,
 }
+
+impl Default for Registers {
+    fn default() -> Self {
+        Self::default()
+    }
+}
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reg {
@@ -38,17 +45,25 @@ pub enum DReg {
     PC = 5,
 }
 
-// pub enum Flag {
-//     Carry,
-//     HalfCarry,
-//     Negative,
-//     Zero,
-// }
-
 impl Registers {
 
-    pub const fn new() -> Self {
+    pub const fn default() -> Self {
         Self { bc: 0, de: 0, hl: 0, af: 0,  sp: 0xFFFE, pc: 0x100, }
+    }
+
+    pub const fn new(bc: u16, de: u16, hl: u16, af: u16, sp: u16, pc: u16) -> Self {
+        Self { bc, de, hl, af, sp, pc }
+    }
+
+    pub const fn new_single(b: u8, c: u8, d: u8, e: u8, h: u8, l: u8, a: u8, f: u8, sp: u16, pc: u16) -> Self {
+        Self {
+            bc: u16::from_be_bytes([b, c]),
+            de: u16::from_be_bytes([d, e]),
+            hl: u16::from_be_bytes([h, l]),
+            af: u16::from_be_bytes([a, f]),
+            sp,
+            pc,
+        }
     }
 
     pub fn read_index(&self, bus: &Bus, index: u8) -> Result<u8, BusError> {
@@ -133,25 +148,13 @@ impl Index<Reg> for Registers {
     type Output = u8;
 
     fn index(&self, register: Reg) -> &Self::Output {
-        let value = match register {
-            Reg::B | Reg::C => &self.bc,
-            Reg::D | Reg::E => &self.de,
-            Reg::H | Reg::L => &self.hl,
-            Reg::A | Reg::F => &self.af,
-        };
-        &bytemuck::bytes_of(value)[register as u8 as usize & 1]
+        unsafe { &*(self as *const Self as *const u8).add(register as usize) }    
     }
 }
 
 impl IndexMut<Reg> for Registers {
     fn index_mut(&mut self, register: Reg) -> &mut Self::Output {
-        let value = match register {
-            Reg::B | Reg::C => &mut self.bc,
-            Reg::D | Reg::E => &mut self.de,
-            Reg::H | Reg::L => &mut self.hl,
-            Reg::A | Reg::F => &mut self.af,
-        };
-        &mut bytemuck::bytes_of_mut(value)[register as u8 as usize & 1]
+        unsafe { &mut *(self as *mut Self as *mut u8).add(register as usize) }    
     }
 }
 

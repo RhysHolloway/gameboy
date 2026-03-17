@@ -36,9 +36,8 @@ use std::sync::Arc;
 // pub use crate::builder::{check_texture_size, PixelsBuilder};
 pub use builder::{check_texture_size, PixelsBuilder};
 pub use renderers::ScalingRenderer;
-pub use wgpu;
-use wgpu::rwh::{HasDisplayHandle, HasWindowHandle};
-use winit::window::Window;
+pub extern crate wgpu;
+pub extern crate winit;
 
 mod builder;
 mod renderers;
@@ -46,7 +45,7 @@ mod renderers;
 /// A logical texture for a window surface.
 #[derive(Debug)]
 pub struct SurfaceTexture {
-    window: Arc<Window>,
+    window: Arc<winit::window::Window>,
     size: SurfaceSize,
 }
 
@@ -221,9 +220,9 @@ impl SurfaceTexture {
     /// # Panics
     ///
     /// Panics when `width` or `height` are 0.
-    pub fn new(window: &Arc<Window>) -> Self {
-        let width = window.inner_size().width;
-        let height = window.inner_size().height;
+    pub fn new(window: &Arc<winit::window::Window>) -> Self {
+        let winit::dpi::PhysicalSize { width, height } = window.inner_size();
+
         assert!(width > 0);
         assert!(height > 0);
 
@@ -264,8 +263,7 @@ impl<'win> Pixels<'win> {
     /// # Panics
     ///
     /// Panics when `width` or `height` are 0.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn new<W: HasWindowHandle + HasDisplayHandle + Send + Sync + 'win>(
+    pub fn new(
         width: u32,
         height: u32,
         surface_texture: SurfaceTexture,

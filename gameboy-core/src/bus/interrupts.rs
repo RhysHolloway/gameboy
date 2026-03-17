@@ -1,9 +1,9 @@
-use crate::gb::util::Address;
+use crate::util::Address;
 
 pub struct Interrupts {
     pub i: u8,
     pub ie: u8,
-    ime: ImeState,
+    ime: bool,
     halt: bool,
 }
 
@@ -18,34 +18,29 @@ impl Default for Interrupts {
     }
 }
 
-struct ImeState {
-    current: bool,
-    next: (u8, bool),
-}
+// struct ImeState {
+//     current: bool,
+//     next: (u8, bool),
+// }
 
-impl Default for ImeState {
-    fn default() -> Self {
-        Self {
-            current: true,
-            next: Default::default(),
-        }
-    }
-}
+// impl Default for ImeState {
+//     fn default() -> Self {
+//         Self {
+//             current: true,
+//             next: Default::default(),
+//         }
+//     }
+// }
 
 impl Interrupts {
-    pub fn cycle(&mut self) {
-        if self.ime.next.0 > 0 {
-            if self.ime.next.0 == 1 {
-                self.ime.current = self.ime.next.1;
-            }
-            self.ime.next.0 -= 1;
-        }
-    }
 
     pub fn interrupt(&mut self) -> InterruptState {
         if self.halt {
-            return InterruptState::Halt
-        } else if self.ime.current {
+            if self.i & self.ie != 0 {
+                self.halt = false;
+            }
+            return InterruptState::Halt;
+        } else if self.ime() {
             let bits = self.ie & self.i;
             for bit in 0..5 {
                 if bits & (1 << bit) != 0 {
@@ -58,24 +53,24 @@ impl Interrupts {
         InterruptState::None
     }
     
-    pub fn halt(&mut self) {
+    pub const fn halt(&mut self) {
         self.halt = true;
     }
     
-    pub fn set_ime(&mut self, value: bool) {
-        self.ime.next = (2, value);
+    pub(crate) const fn set_ime(&mut self, value: bool) {
+        self.ime = value;
     }
 
-    pub fn is_halting(&self) -> bool {
+    pub const fn is_halting(&self) -> bool {
         self.halt
     }
 
-    pub fn ie(&self) -> u8 {
+    pub const fn ie(&self) -> u8 {
         self.ie
     }
 
-    pub fn ime(&self) -> bool {
-        self.ime.current
+    pub const fn ime(&self) -> bool {
+        self.ime
     }
 }
 

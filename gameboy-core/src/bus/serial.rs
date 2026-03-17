@@ -1,5 +1,5 @@
-use crate::gb::Cycles;
-use crate::gb::util::{Address, MemoryError};
+use crate::Cycles;
+use crate::util::{Address, MemoryError};
 
 #[derive(Clone, Debug)]
 pub struct SerialState {

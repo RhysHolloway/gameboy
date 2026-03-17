@@ -1,16 +1,16 @@
-use crate::gb::Cycles;
-use crate::gb::util::{Address, BusComponent, MappedComponent, MemoryError, OffsetMemory};
+use crate::Cycles;
+use crate::util::{Address, BusComponent, MappedComponent, MemoryError, OffsetMemory};
 
 pub struct Ppu {
     clock: u16,
     vram: OffsetMemory<0x8000, 0x2000>,
     pub voam: OffsetMemory<0xFE00, 0xA0>,
-	framebuffer: [u8; Self::SCREEN_WIDTH * Self::SCREEN_HEIGHT],
+    framebuffer: [u8; Self::SCREEN_WIDTH * Self::SCREEN_HEIGHT],
     lcdc: u8,
     stat: u8,
     scy: u8,
     scx: u8,
-    ly: u8,
+    pub ly: u8,
     lyc: u8,
     bgp: u8,
     obp0: u8,
@@ -21,8 +21,30 @@ pub struct Ppu {
     window_line: u8,
 }
 
-impl Ppu {
+impl Default for Ppu {
+    fn default() -> Self {
+        Self {
+            clock: 0,
+            vram: OffsetMemory::new("Video RAM"),
+            voam: OffsetMemory::new("Video OAM"),
+            framebuffer: [0x00; Self::SCREEN_WIDTH * Self::SCREEN_HEIGHT],
+            lcdc: 0x91,
+            stat: 0x85,
+            scy: 0,
+            scx: 0,
+            ly: 0,
+            lyc: 0,
+            bgp: 0xFC,
+            obp0: 0xFF,
+            obp1: 0xFF,
+            wy: 0,
+            wx: 0,
+            window_line: 0,
+        }
+    }
+}
 
+impl Ppu {
     pub const SCREEN_WIDTH: usize = 160;
     pub const SCREEN_HEIGHT: usize = 144;
 
@@ -47,7 +69,7 @@ impl Ppu {
      * (Also called STAT)
      */
     pub const INTERRUPT_LCD: u8 = 1 << 1;
-        
+
     pub const HBLANK: u8 = 0;
     pub const VBLANK: u8 = 1;
     pub const OAM: u8 = 2;
@@ -77,27 +99,6 @@ impl Ppu {
     pub const LCDC_OBJ: u8 = 1 << 1;
     pub const LCDC_OBJ_SIZE: u8 = 1 << 2;
 
-    pub fn new() -> Self {
-        Self { 
-            clock: 0, 
-            vram: OffsetMemory::new("Video RAM"), 
-            voam: OffsetMemory::new("Video OAM"),
-            framebuffer: [0x00; Self::SCREEN_WIDTH * Self::SCREEN_HEIGHT], 
-            lcdc: 0x91,
-            stat: 0x85,
-            scy: 0,
-            scx: 0,
-            ly: 0,
-            lyc: 0,
-            bgp: 0xFC,
-            obp0: 0xFF,
-            obp1: 0xFF,
-            wy: 0,
-            wx: 0,
-            window_line: 0,
-         }
-    }
-
     pub fn read_vram(&self, address: Address) -> Result<u8, MemoryError> {
         self.vram.read_mapped(address)
     }
@@ -105,7 +106,7 @@ impl Ppu {
     pub fn write_vram(&mut self, address: Address, value: u8) -> Result<(), MemoryError> {
         self.vram.write_mapped(address, value)
     }
-    
+
     pub fn cycle(&mut self, int: &mut u8, cycles: &Cycles) -> Result<bool, MemoryError> {
         let mut render = false;
         for _ in 0..cycles.m() {
@@ -114,8 +115,8 @@ impl Ppu {
                 Self::HBLANK => {
                     if self.clock >= 204 {
                         self.clock = 0;
-                        self.update_ly(int, self.ly.wrapping_add(1));
-                        if self.ly == Self::SCREEN_HEIGHT as u8 {
+                        self.update_ly(int, self.ly().wrapping_add(1));
+                        if self.ly() == Self::SCREEN_HEIGHT as u8 {
                             self.set_mode(int, Self::VBLANK)?;
                             render = true;
                         } else {
@@ -126,8 +127,8 @@ impl Ppu {
                 Self::VBLANK => {
                     if self.clock >= 456 {
                         self.clock = 0;
-                        self.update_ly(int, self.ly.wrapping_add(1));
-                        if self.ly >= Self::SCREEN_HEIGHT as u8 + 10 {
+                        self.update_ly(int, self.ly().wrapping_add(1));
+                        if self.ly() >= Self::SCREEN_HEIGHT as u8 + 10 {
                             self.update_ly(int, 0);
                             self.set_mode(int, Self::OAM)?;
                         }
@@ -141,7 +142,7 @@ impl Ppu {
                 }
                 Self::TRANSFER => {
                     if self.clock >= 172 {
-                        if self.ly < Self::SCREEN_HEIGHT as u8 {
+                        if self.ly() < Self::SCREEN_HEIGHT as u8 {
                             self.render_scanline()?;
                         }
                         self.clock = 0;
@@ -149,7 +150,7 @@ impl Ppu {
                     }
                 }
                 _ => unreachable!(),
-            } 
+            }
         }
         Ok(render)
     }
@@ -160,7 +161,7 @@ impl Ppu {
             Self::ADDRESS_STAT => self.stat,
             Self::ADDRESS_SCY => self.scy,
             Self::ADDRESS_SCX => self.scx,
-            Self::ADDRESS_LY => self.ly,
+            Self::ADDRESS_LY => self.ly(),
             Self::ADDRESS_LYC => self.lyc,
             Self::ADDRESS_BGP => self.bgp,
             Self::ADDRESS_OBJP1 => self.obp0,
@@ -169,8 +170,12 @@ impl Ppu {
             Self::ADDRESS_WX => self.wx,
             _ => {
                 return Err(MemoryError::read("PPU Register", address));
-            },
+            }
         })
+    }
+
+    pub const fn ly(&self) -> u8 {
+        self.ly
     }
 
     pub fn write_reg(&mut self, address: Address, value: u8) -> Result<(), MemoryError> {
@@ -179,7 +184,6 @@ impl Ppu {
             Self::ADDRESS_STAT => self.stat = (self.stat & 0x07) | (value & 0x78),
             Self::ADDRESS_SCY => self.scy = value,
             Self::ADDRESS_SCX => self.scx = value,
-            // Self::ADDRESS_LY => self.ly = 0,
             Self::ADDRESS_LYC => self.lyc = value,
             Self::ADDRESS_BGP => self.bgp = value,
             Self::ADDRESS_OBJP1 => self.obp0 = value & 0xFC,
@@ -188,17 +192,17 @@ impl Ppu {
             Self::ADDRESS_WX => self.wx = value,
             _ => {
                 return Err(MemoryError::write("PPU Register", address));
-            },
+            }
         }
         Ok(())
     }
 
     fn update_ly(&mut self, int: &mut u8, value: u8) {
         self.ly = value;
-        if self.ly == self.lyc {
+        if self.ly() == self.lyc {
             self.stat |= Self::STAT_LY_COMPARE;
             if self.stat & Self::STAT_LYC_SELECT != 0 {
-                *int |= Self::INTERRUPT_LCD;            
+                *int |= Self::INTERRUPT_LCD;
             }
         } else {
             self.stat &= !Self::STAT_LY_COMPARE;
@@ -218,7 +222,7 @@ impl Ppu {
                 interrupt = self.stat & Self::STAT_MODE_1_SELECT != 0;
             }
             Self::OAM => interrupt = self.stat & Self::STAT_MODE_2_SELECT != 0,
-            _ => ()
+            _ => (),
         }
         if interrupt {
             *int |= Self::INTERRUPT_LCD;
@@ -227,7 +231,6 @@ impl Ppu {
     }
 
     fn render_scanline(&mut self) -> Result<(), MemoryError> {
-
         #[derive(Clone, Copy, Debug)]
         struct Sprite {
             x: i16,
@@ -237,7 +240,7 @@ impl Ppu {
             oam_index: usize,
         }
 
-        let y = self.ly as u16;
+        let y = self.ly() as u16;
         let bg_enable = self.lcdc & 0x01 != 0;
         let sprite_enable = self.lcdc & 0x02 != 0;
         let sprite_size = if self.lcdc & 0x04 != 0 { 16 } else { 8 };
@@ -371,7 +374,7 @@ impl Ppu {
                     }
                 }
             }
-            self.framebuffer[self.ly as usize * Self::SCREEN_WIDTH + x as usize] = final_color;
+            self.framebuffer[self.ly() as usize * Self::SCREEN_WIDTH + x as usize] = final_color;
         }
 
         if window_drawn {
@@ -381,29 +384,24 @@ impl Ppu {
         Ok(())
     }
 
-    fn palette_color(&self, palette: u8, color_id: u8) -> u8 {
+    const fn palette_color(&self, palette: u8, color_id: u8) -> u8 {
         let shift = (color_id & 0x03) * 2;
         (palette >> shift) & 0x03
     }
 
-    pub fn clock(&self) -> u16 {
+    pub const fn clock(&self) -> u16 {
         self.clock
     }
 
-    pub fn framebuffer(&self) -> &[u8] {
+    pub const fn framebuffer(&self) -> &[u8] {
         &self.framebuffer
     }
 
-    pub fn lcdc(&self) -> u8 {
+    pub const fn lcdc(&self) -> u8 {
         self.lcdc
     }
 
-    pub fn stat(&self) -> u8 {
+    pub const fn stat(&self) -> u8 {
         self.stat & (1 >> 7)
     }
-
-    pub fn ly(&self) -> u8 {
-        self.ly
-    }
-
 }

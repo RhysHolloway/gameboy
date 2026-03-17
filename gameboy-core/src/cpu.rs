@@ -1,13 +1,12 @@
 use std::fmt::Display;
 
-use crate::gb::util::{Address, Width};
-use crate::gb::bus::{Bus, BusError, InterruptState};
-
-use self::registers::*;
+use crate::bus::{Bus, BusError, InterruptState};
+use crate::util::{Address, Width};
 
 use super::Cycles;
 
-pub mod registers;
+mod registers;
+pub use self::registers::*;
 
 pub struct CPU {
     pub registers: Registers,
@@ -82,21 +81,25 @@ pub struct CycleExecution {
 impl CPU {
     pub fn new() -> Self {
         Self {
-            registers: Registers::new(),
+            registers: Registers::default(),
         }
     }
 
     pub fn cycle(&mut self, bus: &mut Bus) -> Result<CycleExecution, CycleError> {
         match bus.interrupts.interrupt() {
-            InterruptState::Interrupt(address) => {
-                match self.op_call(bus, address) {
-                    Ok(()) => Ok(CycleExecution { execution: ExecutionType::Interrupt(address), cycles: Cycles(20) }),
-                    Err(err) => Err(CycleError::Bus(address, err)),
-                }
-            }
+            InterruptState::Interrupt(address) => match self.op_call(bus, address) {
+                Ok(()) => Ok(CycleExecution {
+                    execution: ExecutionType::Interrupt(address),
+                    cycles: Cycles(20),
+                }),
+                Err(err) => Err(CycleError::Bus(address, err)),
+            },
             InterruptState::Halt => {
                 // Handle halt interrupt
-                Ok(CycleExecution { execution: ExecutionType::Halt, cycles: Cycles(4) })
+                Ok(CycleExecution {
+                    execution: ExecutionType::Halt,
+                    cycles: Cycles(4),
+                })
             }
             InterruptState::None => {
                 let address = Address(self.registers[DReg::PC]);
@@ -104,17 +107,17 @@ impl CPU {
                     self.read_next(bus)
                         .map_err(|e| CycleError::Bus(address, e))?,
                 );
-                self.execute(bus, opcode).map(|cycles| CycleExecution { execution: ExecutionType::Opcode(address), cycles })
+                self.execute(bus, opcode)
+                    .map(|cycles| CycleExecution {
+                        execution: ExecutionType::Opcode(address),
+                        cycles,
+                    })
                     .map_err(|e| CycleError::Opcode(address, opcode, e))
             }
         }
     }
 
-    fn execute(
-        &mut self,
-        bus: &mut Bus,
-        Opcode(opcode): Opcode,
-    ) -> Result<Cycles, OpcodeError> {
+    fn execute(&mut self, bus: &mut Bus, Opcode(opcode): Opcode) -> Result<Cycles, OpcodeError> {
         let x = opcode >> 6;
         let y = (opcode >> 3) & 7;
         let z = opcode & 7;
@@ -174,9 +177,9 @@ impl CPU {
                 }
                 3 => {
                     let r = DReg::pair1(p);
-                    match q {
-                        false => self.registers[r] = self.registers[r].wrapping_add(1),
-                        true => self.registers[r] = self.registers[r].wrapping_sub(1),
+                    self.registers[r] = match q {
+                        false => self.registers[r].wrapping_add(1),
+                        true => self.registers[r].wrapping_sub(1),
                     };
                     Cycles(8)
                 }
@@ -189,10 +192,10 @@ impl CPU {
                 }
                 7 => {
                     match y {
-                        0 => self.registers[Reg::A] = self.op_rlc(self.registers[Reg::A]),
-                        1 => self.registers[Reg::A] = self.op_rrc(self.registers[Reg::A]),
-                        2 => self.registers[Reg::A] = self.op_rl(self.registers[Reg::A]),
-                        3 => self.registers[Reg::A] = self.op_rr(self.registers[Reg::A]),
+                        0 => self.registers[Reg::A] = self.op_rlc::<false>(self.registers[Reg::A]),
+                        1 => self.registers[Reg::A] = self.op_rrc::<false>(self.registers[Reg::A]),
+                        2 => self.registers[Reg::A] = self.op_rl::<false>(self.registers[Reg::A]),
+                        3 => self.registers[Reg::A] = self.op_rr::<false>(self.registers[Reg::A]),
                         4 => self.op_daa(),
                         5 => {
                             // CPL
@@ -245,12 +248,11 @@ impl CPU {
                         Cycles(8 + 12 * cond as usize)
                     }
                     4 | 6 => {
-                        let address = Address(self.read_next(bus)? as Width) + 0xFF00;
-                        let a = &mut self.registers[Reg::A];
+                        let address = Address(self.read_next(bus)? as Width | 0xFF00);
                         if y == 6 {
-                            *a = bus.read(address)?;
+                            self.registers[Reg::A] = bus.read(address)?;
                         } else {
-                            bus.write(address, *a)?;
+                            bus.write(address, self.registers[Reg::A])?;
                         }
                         Cycles(12)
                     }
@@ -268,7 +270,13 @@ impl CPU {
                 },
                 1 => match q {
                     false => {
-                        self.registers[DReg::pair2(p)] = self.op_pop(bus)?;
+                        let dreg = DReg::pair2(p);
+                        let mut value = self.op_pop(bus)?;
+                        if matches!(dreg, DReg::AF) {
+                            // ignore four flag bits of AF
+                            value = (value & 0xFFF0) | (self.registers[DReg::AF] & 0xF);
+                        }
+                        self.registers[dreg] = value;
                         Cycles(12)
                     }
                     true => match p {
@@ -384,13 +392,17 @@ impl CPU {
     }
 
     fn op_push(&mut self, bus: &mut Bus, value: u16) -> Result<(), BusError> {
-        self.registers[DReg::SP] = self.registers[DReg::SP].checked_sub(2).ok_or(BusError::Overflow)?;
+        self.registers[DReg::SP] = self.registers[DReg::SP]
+            .checked_sub(2)
+            .ok_or(BusError::Overflow)?;
         bus.write_word(Address(self.registers[DReg::SP]), value)
     }
 
     fn op_pop(&mut self, bus: &mut Bus) -> Result<u16, BusError> {
         let value = bus.read_word(Address(self.registers[DReg::SP]))?;
-        self.registers[DReg::SP] = self.registers[DReg::SP].checked_add(2).ok_or(BusError::Overflow)?;
+        self.registers[DReg::SP] = self.registers[DReg::SP]
+            .checked_add(2)
+            .ok_or(BusError::Overflow)?;
         Ok(value)
     }
 
@@ -419,15 +431,16 @@ impl CPU {
         bus: &mut Bus,
         value: u16,
     ) -> Result<u16, BusError> {
-        let diff = self.read_next(bus)? as i8 as i16;
-        let (result, carry) = value.overflowing_add_signed(diff);
+        let diff = self.read_next(bus)? as i8 as i16 as u16;
+        let result = value.wrapping_add(diff);
         if FLAGS {
             self.registers
-                .set_flag(Reg::FLAG_ZERO | Reg::FLAG_NEGATIVE, true);
-            self.registers.set_flag(Reg::FLAG_CARRY, carry);
+                .set_flag(Reg::FLAG_ZERO | Reg::FLAG_NEGATIVE, false);
+            self.registers
+                .set_flag(Reg::FLAG_CARRY, (value as u8).overflowing_add(diff as u8).1);
             self.registers.set_flag(
                 Reg::FLAG_HALF_CARRY,
-                (value & 0xFF).wrapping_add_signed(diff) > 0xFF,
+                Self::half_carry_add_u8(value as u8, diff as u8),
             );
         }
         Ok(result)
@@ -457,28 +470,26 @@ impl CPU {
     fn op_add_hl(&mut self, value: u16) -> Cycles {
         let hl = self.registers[DReg::HL];
 
-        let result = hl + value;
+        let (result, carry) = hl.overflowing_add(value);
 
         self.registers.set_flag(Reg::FLAG_NEGATIVE, false);
-        self.registers.set_flag(Reg::FLAG_CARRY, hl > result);
-        self.registers.set_flag(
-            Reg::FLAG_HALF_CARRY,
-            (((hl & 0xFF) + (value & 0xFF)) & 0x10) == 0x10,
-        );
+        self.registers.set_flag(Reg::FLAG_CARRY, carry);
+        self.registers
+            .set_flag(Reg::FLAG_HALF_CARRY, Self::half_carry_add_u16(hl, value));
 
         self.registers[DReg::HL] = result;
         Cycles(8)
     }
 
     fn op_inc(&mut self, bus: &mut Bus, index: u8) -> Result<Cycles, BusError> {
-        let value = self.registers.read_index(bus, index)?.wrapping_add(1);
+        let original = self.registers.read_index(bus, index)?;
+
+        let (value, carry) = original.overflowing_add(1);
 
         self.registers.set_flag(Reg::FLAG_NEGATIVE, false);
-        self.registers.set_flag(Reg::FLAG_ZERO, value == 0);
-        self.registers.set_flag(
-            Reg::FLAG_HALF_CARRY,
-            ((value & 0xF).wrapping_add(1) & 0x10) == 0x10,
-        );
+        self.registers.set_flag(Reg::FLAG_ZERO, carry);
+        self.registers
+            .set_flag(Reg::FLAG_HALF_CARRY, Self::half_carry_add_u8(original, 1));
 
         self.registers.write_index(bus, index, value)?;
 
@@ -486,14 +497,15 @@ impl CPU {
     }
 
     fn op_dec(&mut self, bus: &mut Bus, index: u8) -> Result<Cycles, BusError> {
-        let value = self.registers.read_index(bus, index)?.wrapping_sub(1);
+        let original = self.registers.read_index(bus, index)?;
 
         self.registers.set_flag(Reg::FLAG_NEGATIVE, true);
-        self.registers.set_flag(Reg::FLAG_ZERO, value == 0);
+        self.registers.set_flag(Reg::FLAG_ZERO, original == 1);
         self.registers
-            .set_flag(Reg::FLAG_HALF_CARRY, (value & 0xF).wrapping_sub(1) > 0xF);
+            .set_flag(Reg::FLAG_HALF_CARRY, Self::half_carry_sub_u8(original, 1));
 
-        self.registers.write_index(bus, index, value)?;
+        self.registers
+            .write_index(bus, index, original.wrapping_sub(1))?;
 
         Ok(Cycles(4 + 8 * (index == 6) as usize))
     }
@@ -526,12 +538,24 @@ impl CPU {
         self.registers.set_flag(Reg::FLAG_NEGATIVE, false);
         self.registers.set_flag(Reg::FLAG_CARRY, overflow);
         self.registers
-            .set_flag(Reg::FLAG_HALF_CARRY, (a & 0xF).wrapping_add(b & 0xF) > 0xF);
+            .set_flag(Reg::FLAG_HALF_CARRY, Self::half_carry_add_u8(a, b));
         result
     }
 
-    fn op_adc(&mut self, value: u8) {
-        self.op_add(value + self.registers.flag(Reg::FLAG_CARRY) as u8);
+    fn op_adc(&mut self, b: u8) {
+        let c = self.registers.flag(Reg::FLAG_CARRY) as u8;
+        let a = self.registers[Reg::A];
+        let result = a.wrapping_add(b).wrapping_add(c);
+
+        let half_carry = (a & 0x0F) + (b & 0x0F) + c > 0x0F;
+        let carry = (a as u16 + b as u16 + c as u16) > 0xFF;
+
+        self.registers.set_flag(Reg::FLAG_ZERO, result == 0);
+        self.registers.set_flag(Reg::FLAG_NEGATIVE, false);
+        self.registers.set_flag(Reg::FLAG_CARRY, carry);
+        self.registers.set_flag(Reg::FLAG_HALF_CARRY, half_carry);
+
+        self.registers[Reg::A] = result;
     }
 
     fn op_sub(&mut self, value: u8) {
@@ -540,8 +564,20 @@ impl CPU {
         *a = a.wrapping_sub(value);
     }
 
-    fn op_sbc(&mut self, value: u8) {
-        self.op_sub(value + self.registers.flag(Reg::FLAG_CARRY) as u8);
+    fn op_sbc(&mut self, b: u8) {
+        let c = self.registers.flag(Reg::FLAG_CARRY) as u8;
+        let a = self.registers[Reg::A];
+        let result = a.wrapping_sub(b).wrapping_sub(c);
+
+        let half_carry = (a & 0x0F) < (b & 0x0F) + c;
+        let carry = (a as u16) < b as u16 + c as u16;
+
+        self.registers.set_flag(Reg::FLAG_ZERO, result == 0);
+        self.registers.set_flag(Reg::FLAG_NEGATIVE, true);
+        self.registers.set_flag(Reg::FLAG_CARRY, carry);
+        self.registers.set_flag(Reg::FLAG_HALF_CARRY, half_carry);
+
+        self.registers[Reg::A] = result;
     }
 
     fn op_and(&mut self, value: u8) {
@@ -579,11 +615,11 @@ impl CPU {
         self.registers.set_flag(Reg::FLAG_NEGATIVE, true);
         self.registers.set_flag(Reg::FLAG_CARRY, overflow);
         self.registers
-            .set_flag(Reg::FLAG_HALF_CARRY, (a & 0xF).wrapping_sub(b & 0xF) > 0xF);
+            .set_flag(Reg::FLAG_HALF_CARRY, Self::half_carry_sub_u8(a, b));
         result
     }
 
-    fn op_rl(&mut self, value: u8) -> u8 {
+    fn op_rl<const ZERO: bool>(&mut self, value: u8) -> u8 {
         let old_flag = self.registers.flag(Reg::FLAG_CARRY) as u8;
 
         let result = ((value << 1) & !1) | old_flag;
@@ -592,12 +628,12 @@ impl CPU {
             .set_flag(Reg::FLAG_HALF_CARRY | Reg::FLAG_NEGATIVE, false);
         self.registers
             .set_flag(Reg::FLAG_CARRY, ((value >> 7) & 0x1) == 1);
-        self.registers.set_flag(Reg::FLAG_ZERO, result == 0);
+        self.registers.set_flag(Reg::FLAG_ZERO, ZERO && result == 0);
 
         return result;
     }
 
-    fn op_rr(&mut self, value: u8) -> u8 {
+    fn op_rr<const ZERO: bool>(&mut self, value: u8) -> u8 {
         let old_flag = (self.registers.flag(Reg::FLAG_CARRY) as u8) << 7;
 
         let result = (value >> 1) | old_flag;
@@ -605,30 +641,30 @@ impl CPU {
         self.registers
             .set_flag(Reg::FLAG_HALF_CARRY | Reg::FLAG_NEGATIVE, false);
         self.registers.set_flag(Reg::FLAG_CARRY, (value & 0x1) == 1);
-        self.registers.set_flag(Reg::FLAG_ZERO, result == 0);
+        self.registers.set_flag(Reg::FLAG_ZERO, ZERO && result == 0);
 
         return result;
     }
 
-    fn op_rlc(&mut self, value: u8) -> u8 {
+    fn op_rlc<const ZERO: bool>(&mut self, value: u8) -> u8 {
         let result = ((value << 1) & !1) | ((value >> 7) & 1);
 
         self.registers
             .set_flag(Reg::FLAG_HALF_CARRY | Reg::FLAG_NEGATIVE, false);
         self.registers
             .set_flag(Reg::FLAG_CARRY, ((value >> 7) & 0x1) == 1);
-        self.registers.set_flag(Reg::FLAG_ZERO, result == 0);
+        self.registers.set_flag(Reg::FLAG_ZERO, ZERO && result == 0);
 
         result
     }
 
-    fn op_rrc(&mut self, value: u8) -> u8 {
+    fn op_rrc<const ZERO: bool>(&mut self, value: u8) -> u8 {
         let result = ((value >> 1) & !(1 << 7)) | ((value & 1) << 7);
 
         self.registers
             .set_flag(Reg::FLAG_HALF_CARRY | Reg::FLAG_NEGATIVE, false);
         self.registers.set_flag(Reg::FLAG_CARRY, (value & 0x1) == 1);
-        self.registers.set_flag(Reg::FLAG_ZERO, result == 0);
+        self.registers.set_flag(Reg::FLAG_ZERO, ZERO && result == 0);
 
         result
     }
@@ -678,14 +714,12 @@ impl CPU {
         result
     }
 
-    fn op_bit(&mut self, value: u8, by: u8) -> u8 {
-        let result = value ^ by;
+    fn op_bit(&mut self, value: u8, by: u8) {
+        let result = value & (1 << by);
 
         self.registers.set_flag(Reg::FLAG_NEGATIVE, false);
         self.registers.set_flag(Reg::FLAG_HALF_CARRY, true);
         self.registers.set_flag(Reg::FLAG_ZERO, result == 0);
-
-        result
     }
 
     pub fn op_cb(&mut self, bus: &mut Bus) -> Result<Cycles, BusError> {
@@ -695,23 +729,23 @@ impl CPU {
         let mut value = self.registers.read_index(bus, reg)?;
         match cb >> 6 {
             0 => match bits {
-                0 => value = self.op_rlc(value),
-                1 => value = self.op_rrc(value),
-                2 => value = self.op_rl(value),
-                3 => value = self.op_rr(value),
+                0 => value = self.op_rlc::<true>(value),
+                1 => value = self.op_rrc::<true>(value),
+                2 => value = self.op_rl::<true>(value),
+                3 => value = self.op_rr::<true>(value),
                 4 => value = self.op_sla(value),
                 5 => value = self.op_sra(value),
                 6 => value = self.op_swap(value),
                 7 => value = self.op_srl(value),
                 8.. => unreachable!(),
             },
-            1 => value = self.op_bit(value, bits),
+            1 => self.op_bit(value, bits), // check bit
             2 => value &= !(1 << bits), // reset bit
             3 => value |= 1 << bits,    // set bit
             4.. => unreachable!(),
         }
         self.registers.write_index(bus, reg, value)?;
-        Ok(Cycles(8 >> (reg == 6) as usize))
+        Ok(Cycles(8 << (reg == 6) as usize))
     }
 
     fn read_next(&mut self, bus: &mut Bus) -> Result<u8, BusError> {
@@ -757,8 +791,24 @@ impl CPU {
     pub fn reset(&mut self) {
         *self = CPU::new();
     }
-    
+
     pub fn pc(&self) -> Address {
         Address(self.registers[DReg::PC])
     }
+
+    const fn half_carry_add_u16(a: u16, b: u16) -> bool {
+        ((a & 0xFFF).wrapping_add(b & 0xFFF) & 0x1000) != 0
+    }
+
+    const fn half_carry_add_u8(a: u8, b: u8) -> bool {
+        ((a & 0xF).wrapping_add(b & 0xF) & 0x10) != 0
+    }
+
+    const fn half_carry_sub_u8(a: u8, b: u8) -> bool {
+        (a & 0xF).wrapping_sub(b & 0xF) > 0xF
+    }
+
+    // const fn half_carry_sub_u16(a: u16, b: u16) -> bool {
+    //     (a & 0xFFF).wrapping_sub(b & 0xFFF) > 0xFFF
+    // }
 }

@@ -1,4 +1,4 @@
-use crate::gb::util::{Address, BusComponent, MappedComponent, Memory, MemoryError};
+use crate::util::{Address, BusComponent, MappedComponent, Memory, MemoryError};
 
 pub struct Wram {
     data: Memory<{Self::SIZE}>,

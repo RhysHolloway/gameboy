@@ -207,13 +207,6 @@ impl ScalingRenderer {
         rpass.draw(0..3, 0..1);
     }
 
-    /// Get the clipping rectangle for the scaling renderer.
-    ///
-    /// This rectangle defines the inner bounds of the surface texture, without the border.
-    pub fn clip_rect(&self) -> (u32, u32, u32, u32) {
-        self.clip_rect
-    }
-
     pub(crate) fn resize(&mut self, queue: &wgpu::Queue, width: u32, height: u32) {
         let matrix = ScalingMatrix::new((self.width, self.height), (width as f32, height as f32));
         let transform_bytes = matrix.as_bytes();
